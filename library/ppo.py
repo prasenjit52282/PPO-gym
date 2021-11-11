@@ -78,6 +78,7 @@ class PPO2:
 	def _test(self,num=1,render=False):
 		cum_rewd=0
 		for _ in range(num):
+			print("On test:",_)
 			done=False
 			reward=0
 			curr_state=self.test_env.reset()
@@ -93,7 +94,10 @@ class PPO2:
 
 
 	def learn(self,iterations=5000,max_reward=None,test_at_iter=2,num_of_test=10,render_at_test=False):
-		for iteration in range(iterations):
+		print("Checking initial performance...")
+		score=self._test(num_of_test,render_at_test)
+		self.logger.log(0,{"Test Score":score})
+		for iteration in range(1,iterations+1):
 			print("On Iteration:",iteration)
 			log_probs = []
 			values = []
@@ -102,7 +106,7 @@ class PPO2:
 			actions = []
 			rewards = []
 			masks = []
-
+			print("Collecting experience...")
 			curr_states=self.envs.reset()
 			for _ in range(self.n_steps):
 				act,log_prob,val=self.ac_network.action_log_prob_value(curr_states)
@@ -133,10 +137,10 @@ class PPO2:
 			advantage    = returns - values
 			advantage    = normalize(advantage)
 
+			print("Learning from replayBuffer...")
 			self.mem.initilize((img_states,ser_states,actions,log_probs,advantage,values,returns))
 			pi_loss,v_loss,ent_loss=0,0,0
 			for batch in self.mem.dataset:
-				print("Learning from replayBuffer")
 				pi_l,v_l,ent_l=self._train(*batch)
 				pi_loss+=pi_l;v_loss+=v_l;ent_loss+=ent_l
 			pi_loss/=self.mem.num_of_batch
@@ -148,6 +152,7 @@ class PPO2:
 			self.logger.log(iteration,metrics)
 			
 			if iteration%test_at_iter==0:
+				print("Checking performance at itr: {}...".format(iteration))
 				score=self._test(num_of_test,render_at_test)
 				self.logger.log(iteration,{"Test Score":score})
 				print('On iteration {} score {}'.format(iteration,score))
