@@ -7,7 +7,7 @@ env=Dummy_UAV_sim()
 
 ppo=PPO2(env,
 		 Mlp_AC,
-		 n_steps=512,
+		 n_steps=4*512,
 		 epochs=10,
 		 steps_per_epoch=32,
 		 shuffle_buffer_size=1024,

@@ -79,24 +79,35 @@ class PPO2:
 		cum_rewd=0
 		for _ in range(num):
 			print("On test:",_)
-			done=False
+			global_done=False
 			reward=0
-			curr_state=self.test_env.reset()
-			while not done:
-				if render:self.test_env.render()
-				act=self.ac_network.learned_action(curr_state)
-				next_state,rewd,notdone,(done,info)=self.test_env.step(act)
-				if not done:curr_state=self.test_env.curr_state
-				reward+=rewd.sum()
+			self.test_env.env.reset()
+			while not global_done:
+				num_live_uav=0
+				for Id in self.test_env.env.uav_agents:
+					if self.test_env.env.is_uav_live(Id):
+						num_live_uav+=1
+						curr_states=self.test_env.env.get_uav_state(Id)
+						curr_states=(np.array([curr_states[0]]),np.array([curr_states[1]]))
+						act,log_prob,val=self.ac_network.action_log_prob_value(curr_states)
+
+						next_states,rewds,dones,info=self.test_env.env.step(Id,act[0])
+						reward+=rewds
+
+				self.test_env.env.looped_through_all_uavs() #increase time
+				global_done,global_info=self.test_env.env.check_if_global_done(num_live_uav)
+
+			self.test_env.env.delete_all_objs()
 			cum_rewd+=reward
 		avg_rewd=cum_rewd/num
+		self.test_env.env.close()
 		return avg_rewd
 
 
 	def learn(self,iterations=5000,max_reward=None,test_at_iter=2,num_of_test=10,render_at_test=False):
-		print("Checking initial performance...")
-		score=self._test(num_of_test,render_at_test)
-		self.logger.log(0,{"Test Score":score})
+		# print("Checking initial performance...")
+		# score=self._test(num_of_test,render_at_test)
+		# self.logger.log(0,{"Test Score":score})
 		for iteration in range(1,iterations+1):
 			print("On Iteration:",iteration)
 			log_probs = []
@@ -107,24 +118,37 @@ class PPO2:
 			rewards = []
 			masks = []
 			print("Collecting experience...")
-			curr_states=self.envs.reset()
+			self.envs.env.reset()
 			for _ in range(self.n_steps):
-				act,log_prob,val=self.ac_network.action_log_prob_value(curr_states)
-				next_states,rewds,notdones,(done,infos)=self.envs.step(act)
+				num_live_uav=0
+				for Id in self.envs.env.uav_agents:
+					if self.envs.env.is_uav_live(Id):
+						num_live_uav+=1
+						curr_states=self.envs.env.get_uav_state(Id)
+						curr_states=(np.array([curr_states[0]]),np.array([curr_states[1]]))
+						act,log_prob,val=self.ac_network.action_log_prob_value(curr_states)
 
-				log_probs.append(log_prob)
-				values.append(val.ravel())
-				img_states.append(curr_states[0])
-				ser_states.append(curr_states[1])
-				actions.append(act)
-				rewards.append(rewds)
-				masks.append(notdones)
+						next_states,rewds,dones,info=self.envs.env.step(Id,act[0])
+						next_states=(np.array([next_states[0]]),np.array([next_states[1]]))
+						rewds=np.array([rewds])
+						notdones=np.array([not dones],dtype="int32")
 
-				if done:
-					curr_states=self.envs.reset()
-				else:
-					curr_states=self.envs.curr_state
+						log_probs.append(log_prob)
+						values.append(val.ravel())
+						img_states.append(curr_states[0])
+						ser_states.append(curr_states[1])
+						actions.append(act)
+						rewards.append(rewds)
+						masks.append(notdones)
+				self.envs.env.looped_through_all_uavs() #increase time
+				global_done,global_info=self.envs.env.check_if_global_done(num_live_uav)
 
+				if global_done:
+					print("episode end for :",global_info)
+					self.envs.env.delete_all_objs() #destroy all objects and free memory
+					self.envs.env.reset()
+
+			self.envs.env.close()
 			next_value=self.ac_network.value(next_states)
 			returns=compute_gae(next_value.ravel(), rewards, masks, values,self.gamma,self.lam)
 
@@ -153,7 +177,7 @@ class PPO2:
 			
 			if iteration%test_at_iter==0:
 				print("Checking performance at itr: {}...".format(iteration))
-				score=self._test(num_of_test,render_at_test)
+				score=self._test(1,render_at_test)
 				self.logger.log(iteration,{"Test Score":score})
 				print('On iteration {} score {}'.format(iteration,score))
 				if max_reward!=None and score>=max_reward:
